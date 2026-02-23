@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
@@ -19,6 +20,8 @@ except Exception as e:
 # ---------------------------------------------------
 
 HF_API_KEY = st.secrets["HF_API_KEY"]
+
+# This model works with router inference
 HF_MODEL = "HuggingFaceH4/zephyr-7b-beta"
 
 # ---------------------------------------------------
@@ -128,7 +131,6 @@ def generate_twin(note, style):
         }
     }
 
-    # NEW ROUTER ENDPOINT
     url = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
 
     response = requests.post(url, headers=headers, json=payload)
@@ -215,7 +217,6 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
-
 
 
 
