@@ -3,7 +3,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
 import google.generativeai as genai
-import os
 
 # ---------------------------------------------------
 # LOAD BASELINE VECTOR
@@ -21,7 +20,7 @@ except Exception as e:
 
 try:
     genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-pro")
 except Exception as e:
     st.error(f"API configuration error: {e}")
     st.stop()
@@ -148,10 +147,13 @@ def generate_twin(note, style):
 
     response = model.generate_content(prompt)
 
-    if response.text:
+    if hasattr(response, "text") and response.text:
         return response.text
-    else:
+
+    try:
         return response.candidates[0].content.parts[0].text
+    except:
+        return "No response generated."
 
 # ---------------------------------------------------
 # STREAMLIT UI
@@ -232,4 +234,5 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
+
 
