@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
 import re
+import pandas as pd
 from sklearn.decomposition import PCA
-from sklearn.cluster import KMeans
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib import colors
@@ -12,7 +12,7 @@ from reportlab.platypus import TableStyle
 from reportlab.lib.units import inch
 from io import BytesIO
 
-st.title("ICU Structural Digital Twin – Modular Research Engine")
+st.title("ICU Structural Digital Twin – Comparative Research Dashboard")
 
 # ---------------------------------------------------
 # CLEAN NOTE
@@ -37,7 +37,6 @@ def count_passives(text):
 
 def compute_metrics(text):
     word_count = len(text.split()) + 1
-
     ethical = len(re.findall(r"prognosis|goals|family|palliative", text.lower()))
     decision = len(re.findall(r"initiate|start|stop|intubate|withdraw", text.lower()))
     conditional = len(re.findall(r"if .*? persists|will review|pending|reassess", text.lower()))
@@ -52,16 +51,7 @@ def compute_metrics(text):
     return np.array([DEI, AVS, EIR, ICS])
 
 # ---------------------------------------------------
-# ENTROPY
-# ---------------------------------------------------
-
-def entropy(vec):
-    vec = vec + 1e-8
-    p = vec / np.sum(vec)
-    return -np.sum(p * np.log(p))
-
-# ---------------------------------------------------
-# INDIVIDUAL TRANSFORMATIONS
+# TRANSFORMATIONS
 # ---------------------------------------------------
 
 def ethical_transform(text):
@@ -79,10 +69,6 @@ def coherence_transform(text):
     prefix = "Given the above physiological findings, the integrated ICU management plan is as follows: "
     return prefix + text
 
-# ---------------------------------------------------
-# MERGED TRANSFORMATION
-# ---------------------------------------------------
-
 def merged_transform(text):
     text = ethical_transform(text)
     text = decision_transform(text)
@@ -91,81 +77,112 @@ def merged_transform(text):
     return text
 
 # ---------------------------------------------------
-# MAIN UI
+# CORPUS BASELINE
+# ---------------------------------------------------
+
+uploaded_corpus = st.file_uploader("Upload corpus CSV (column: note)", type=["csv"])
+
+if uploaded_corpus:
+    df = pd.read_csv(uploaded_corpus)
+    corpus_vectors = np.array([compute_metrics(n) for n in df["note"]])
+    corpus_baseline = np.mean(corpus_vectors, axis=0)
+    st.success("Corpus baseline generated.")
+else:
+    corpus_baseline = None
+
+# ---------------------------------------------------
+# MAIN INPUT
 # ---------------------------------------------------
 
 note = st.text_area("Paste ICU Note")
 
-mode = st.selectbox(
-    "Select Structural Mode",
-    [
-        "Ethical Integration",
-        "Decision Explicitness",
-        "Accountability Visibility",
-        "Interpretive Coherence",
-        "Merged (All Axes)"
-    ]
-)
-
-if st.button("Run Structural Simulation"):
+if st.button("Run Comparative Structural Analysis"):
 
     if not note.strip():
         st.warning("Enter note.")
     else:
 
-        clean_note = normalize_note(note)
+        clean = normalize_note(note)
 
-        if mode == "Ethical Integration":
-            twin = ethical_transform(clean_note)
+        twins = {
+            "Original": clean,
+            "Ethical": ethical_transform(clean),
+            "Decision": decision_transform(clean),
+            "Accountability": accountability_transform(clean),
+            "Coherence": coherence_transform(clean),
+            "Merged": merged_transform(clean)
+        }
 
-        elif mode == "Decision Explicitness":
-            twin = decision_transform(clean_note)
+        metrics = {}
+        for key in twins:
+            metrics[key] = compute_metrics(twins[key])
 
-        elif mode == "Accountability Visibility":
-            twin = accountability_transform(clean_note)
+        # ---------------------------------------------------
+        # MULTI-PANEL DISPLAY
+        # ---------------------------------------------------
 
-        elif mode == "Interpretive Coherence":
-            twin = coherence_transform(clean_note)
+        for key in twins:
+            with st.expander(key + " Version"):
+                st.write(twins[key])
+                st.write("Metrics:", metrics[key])
 
-        else:
-            twin = merged_transform(clean_note)
+        # ---------------------------------------------------
+        # RADAR OVERLAY
+        # ---------------------------------------------------
 
-        # Metrics
-        original_vec = compute_metrics(clean_note)
-        twin_vec = compute_metrics(twin)
+        st.subheader("Radar Structural Comparison")
 
-        drift = 1 - (np.dot(original_vec, twin_vec) /
-                     (norm(original_vec) * norm(twin_vec)))
-
-        ent_orig = entropy(original_vec)
-        ent_twin = entropy(twin_vec)
-
-        # PCA
-        data = np.vstack([original_vec, twin_vec])
-        pca = PCA(n_components=2)
-        reduced = pca.fit_transform(data)
-
-        # Clustering
-        kmeans = KMeans(n_clusters=2, random_state=42).fit(data)
-
-        # Display
-        st.subheader("Transformed Note")
-        st.write(twin)
-
-        st.write("Structural Drift:", drift)
-        st.write("Original Entropy:", ent_orig)
-        st.write("Twin Entropy:", ent_twin)
-        st.write("Cluster Assignment:", kmeans.labels_)
+        labels = ["DEI","AVS","EIR","ICS"]
+        angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False)
+        angles = np.concatenate((angles, [angles[0]]))
 
         fig = plt.figure()
-        plt.scatter(reduced[:,0], reduced[:,1])
-        plt.text(reduced[0,0], reduced[0,1], "Original")
-        plt.text(reduced[1,0], reduced[1,1], "Twin")
+        ax = fig.add_subplot(111, polar=True)
+
+        for key in metrics:
+            values = list(metrics[key]) + [metrics[key][0]]
+            ax.plot(angles, values, label=key)
+
+        if corpus_baseline is not None:
+            baseline_vals = list(corpus_baseline) + [corpus_baseline[0]]
+            ax.plot(angles, baseline_vals, linestyle='dashed', label="Corpus Baseline")
+
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(labels)
+        ax.legend(loc='upper right', bbox_to_anchor=(1.3,1.1))
+
         st.pyplot(fig)
 
         # ---------------------------------------------------
-        # PDF EXPORT
+        # PCA VISUALIZATION
         # ---------------------------------------------------
+
+        st.subheader("PCA Structural Embedding")
+
+        data = np.vstack([metrics[k] for k in metrics])
+
+        if corpus_baseline is not None:
+            data = np.vstack([data, corpus_baseline])
+
+        pca = PCA(n_components=2)
+        reduced = pca.fit_transform(data)
+
+        fig2 = plt.figure()
+        for i, key in enumerate(metrics):
+            plt.scatter(reduced[i,0], reduced[i,1])
+            plt.text(reduced[i,0], reduced[i,1], key)
+
+        if corpus_baseline is not None:
+            plt.scatter(reduced[-1,0], reduced[-1,1])
+            plt.text(reduced[-1,0], reduced[-1,1], "Baseline")
+
+        st.pyplot(fig2)
+
+        # ---------------------------------------------------
+        # PDF EXPORT (FOR MERGED MODE)
+        # ---------------------------------------------------
+
+        selected_for_pdf = st.selectbox("Select Mode to Export PDF", list(twins.keys()))
 
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer)
@@ -174,18 +191,17 @@ if st.button("Run Structural Simulation"):
 
         elements.append(Paragraph("ICU Structural Digital Twin Report", styles['Heading1']))
         elements.append(Spacer(1, 0.3 * inch))
-        elements.append(Paragraph(f"Mode: {mode}", styles['Heading3']))
+        elements.append(Paragraph(f"Mode: {selected_for_pdf}", styles['Heading3']))
         elements.append(Spacer(1, 0.2 * inch))
-
-        elements.append(Paragraph("Transformed Note:", styles['Heading3']))
-        elements.append(Paragraph(twin, styles['Normal']))
+        elements.append(Paragraph(twins[selected_for_pdf], styles['Normal']))
         elements.append(Spacer(1, 0.3 * inch))
 
         table_data = [
             ["Metric", "Value"],
-            ["Structural Drift", str(drift)],
-            ["Original Entropy", str(ent_orig)],
-            ["Twin Entropy", str(ent_twin)]
+            ["DEI", str(metrics[selected_for_pdf][0])],
+            ["AVS", str(metrics[selected_for_pdf][1])],
+            ["EIR", str(metrics[selected_for_pdf][2])],
+            ["ICS", str(metrics[selected_for_pdf][3])]
         ]
 
         table = Table(table_data)
@@ -196,17 +212,15 @@ if st.button("Run Structural Simulation"):
 
         elements.append(table)
         doc.build(elements)
-
         buffer.seek(0)
 
         st.download_button(
-            "Download PDF Report",
+            "Download Selected Mode PDF",
             data=buffer,
             file_name="ICU_structural_report.pdf",
             mime="application/pdf"
         )
-        )
-    
+
 
 
 
