@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
-from google import genai
+import requests
 
 # ---------------------------------------------------
 # LOAD BASELINE VECTOR
@@ -15,14 +15,11 @@ except Exception as e:
     st.stop()
 
 # ---------------------------------------------------
-# CONFIGURE GEMINI CLIENT (NEW SDK)
+# HUGGING FACE CONFIG
 # ---------------------------------------------------
 
-try:
-    client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
-except Exception as e:
-    st.error(f"API configuration error: {e}")
-    st.stop()
+HF_API_KEY = st.secrets["HF_API_KEY"]
+HF_MODEL = "tiiuae/falcon-7b-instruct"
 
 # ---------------------------------------------------
 # LEXICONS
@@ -111,26 +108,44 @@ NOTE:
 """
 
 # ---------------------------------------------------
-# GEMINI GENERATION
+# HUGGING FACE GENERATION
 # ---------------------------------------------------
 
 def generate_twin(note, style):
+
     prompt = get_prompt(note, style)
 
-    response = client.models.generate_content(
-        model="gemini-1.5-flash",
-        contents=prompt
-    )
+    headers = {
+        "Authorization": f"Bearer {HF_API_KEY}",
+        "Content-Type": "application/json"
+    }
 
-    return response.text
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": 512,
+            "temperature": 0.7
+        }
+    }
+
+    url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+
+    response = requests.post(url, headers=headers, json=payload)
+
+    if response.status_code == 200:
+        output = response.json()
+        if isinstance(output, list) and "generated_text" in output[0]:
+            return output[0]["generated_text"]
+        else:
+            return str(output)
+    else:
+        return f"HuggingFace Error: {response.status_code} - {response.text}"
 
 # ---------------------------------------------------
 # STREAMLIT UI
 # ---------------------------------------------------
 
-st.title("ICU Documentation Structural Digital Twin")
-
-st.markdown("This tool modifies documentation structure only. It does NOT provide clinical advice.")
+st.title("ICU Documentation Structural Digital Twin (Free Version)")
 
 note = st.text_area("Paste ICU Handover Note")
 
@@ -149,11 +164,8 @@ if st.button("Generate Twin"):
     if not note.strip():
         st.warning("Please paste a note.")
     else:
-        try:
-            transformed_note = generate_twin(note, style)
-        except Exception as e:
-            st.error(f"Generation error: {e}")
-            st.stop()
+
+        transformed_note = generate_twin(note, style)
 
         st.subheader("Transformed Note")
         st.write(transformed_note)
@@ -202,6 +214,7 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
+
 
 
 
