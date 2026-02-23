@@ -1,0 +1,24 @@
+
+
+import streamlit as st
+import numpy as np
+from numpy.linalg import norm
+
+st.title("ICU Documentation Digital Twin")
+
+baseline_vector = np.load("baseline_vector.npy")
+
+note = st.text_area("Paste ICU Handover Note")
+
+style = st.selectbox(
+    "Select Structural Axis to Enhance",
+    [
+        "Ethical Integration",
+        "Decision Explicitness",
+        "Accountability Visibility",
+        "Interpretive Coherence"
+    ]
+)
+
+if st.button("Generate Twin"):
+    st.write("Processing...")
