@@ -12,7 +12,7 @@ from reportlab.platypus import TableStyle
 from reportlab.lib.units import inch
 from io import BytesIO
 
-st.title("ICU Structural Digital Twin – Comparative Research Dashboard")
+st.title("ICU Structural Handover Digital Twin – Analytics Engine")
 
 # ---------------------------------------------------
 # CLEAN NOTE
@@ -80,15 +80,16 @@ def merged_transform(text):
 # CORPUS BASELINE
 # ---------------------------------------------------
 
-uploaded_corpus = st.file_uploader("Upload corpus CSV (column: note)", type=["csv"])
+uploaded_corpus = st.file_uploader("Upload corpus CSV (column name: note)", type=["csv"])
+
+corpus_baseline = None
+corpus_vectors = None
 
 if uploaded_corpus:
     df = pd.read_csv(uploaded_corpus)
     corpus_vectors = np.array([compute_metrics(n) for n in df["note"]])
     corpus_baseline = np.mean(corpus_vectors, axis=0)
     st.success("Corpus baseline generated.")
-else:
-    corpus_baseline = None
 
 # ---------------------------------------------------
 # MAIN INPUT
@@ -113,9 +114,8 @@ if st.button("Run Comparative Structural Analysis"):
             "Merged": merged_transform(clean)
         }
 
-        metrics = {}
-        for key in twins:
-            metrics[key] = compute_metrics(twins[key])
+        metrics = {k: compute_metrics(v) for k, v in twins.items()}
+        original_vec = metrics["Original"]
 
         # ---------------------------------------------------
         # MULTI-PANEL DISPLAY
@@ -179,7 +179,71 @@ if st.button("Run Comparative Structural Analysis"):
         st.pyplot(fig2)
 
         # ---------------------------------------------------
-        # PDF EXPORT (FOR MERGED MODE)
+        # STATISTICAL SUMMARY TABLE
+        # ---------------------------------------------------
+
+        st.subheader("Automated Statistical Summary (Manuscript Ready)")
+
+        summary_rows = []
+
+        for key in metrics:
+
+            vec = metrics[key]
+
+            entropy_val = -np.sum((vec + 1e-8)/np.sum(vec + 1e-8) *
+                                  np.log((vec + 1e-8)/np.sum(vec + 1e-8)))
+
+            drift_original = 1 - (np.dot(original_vec, vec) /
+                                  (norm(original_vec) * norm(vec)))
+
+            if corpus_baseline is not None:
+                drift_baseline = 1 - (np.dot(corpus_baseline, vec) /
+                                      (norm(corpus_baseline) * norm(vec)))
+                z_score = (vec - corpus_baseline) / (np.std(corpus_vectors, axis=0) + 1e-8)
+                z_mean = np.mean(z_score)
+            else:
+                drift_baseline = np.nan
+                z_mean = np.nan
+
+            summary_rows.append([
+                key,
+                vec[0],
+                vec[1],
+                vec[2],
+                vec[3],
+                entropy_val,
+                drift_original,
+                drift_baseline,
+                z_mean
+            ])
+
+        summary_df = pd.DataFrame(summary_rows,
+                                  columns=[
+                                      "Mode",
+                                      "DEI",
+                                      "AVS",
+                                      "EIR",
+                                      "ICS",
+                                      "Entropy",
+                                      "Drift_vs_Original",
+                                      "Drift_vs_Baseline",
+                                      "Mean_Zscore_vs_Baseline"
+                                  ])
+
+        st.dataframe(summary_df)
+
+        # CSV EXPORT
+        csv = summary_df.to_csv(index=False).encode('utf-8')
+
+        st.download_button(
+            "Download Statistical Summary (CSV)",
+            data=csv,
+            file_name="ICU_structural_summary.csv",
+            mime="text/csv"
+        )
+
+        # ---------------------------------------------------
+        # PDF EXPORT
         # ---------------------------------------------------
 
         selected_for_pdf = st.selectbox("Select Mode to Export PDF", list(twins.keys()))
@@ -196,26 +260,20 @@ if st.button("Run Comparative Structural Analysis"):
         elements.append(Paragraph(twins[selected_for_pdf], styles['Normal']))
         elements.append(Spacer(1, 0.3 * inch))
 
-        table_data = [
-            ["Metric", "Value"],
-            ["DEI", str(metrics[selected_for_pdf][0])],
-            ["AVS", str(metrics[selected_for_pdf][1])],
-            ["EIR", str(metrics[selected_for_pdf][2])],
-            ["ICS", str(metrics[selected_for_pdf][3])]
-        ]
+        table_data = [summary_df.columns.tolist()] + summary_df.values.tolist()
 
-        table = Table(table_data)
-        table.setStyle(TableStyle([
+        pdf_table = Table(table_data)
+        pdf_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.grey),
             ('GRID', (0,0), (-1,-1), 1, colors.black)
         ]))
 
-        elements.append(table)
+        elements.append(pdf_table)
         doc.build(elements)
         buffer.seek(0)
 
         st.download_button(
-            "Download Selected Mode PDF",
+            "Download PDF Report",
             data=buffer,
             file_name="ICU_structural_report.pdf",
             mime="application/pdf"
