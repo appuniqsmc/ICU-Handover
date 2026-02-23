@@ -1,23 +1,34 @@
+
+
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
+import re
+from sklearn.decomposition import PCA
 
 # ---------------------------------------------------
-# LOAD BASELINE VECTOR
+# LOAD GLOBAL BASELINE
 # ---------------------------------------------------
 
 try:
-    baseline_vector = np.load("baseline_vector.npy")
-except Exception as e:
-    st.error(f"Baseline file error: {e}")
+    global_baseline = np.load("baseline_vector.npy")
+except:
+    st.error("Missing baseline_vector.npy")
     st.stop()
+
+# Optional institutional baseline
+uploaded_file = st.file_uploader("Upload Institutional Baseline (.npy)", type=["npy"])
+if uploaded_file:
+    institutional_baseline = np.load(uploaded_file)
+else:
+    institutional_baseline = None
 
 # ---------------------------------------------------
 # LEXICONS
 # ---------------------------------------------------
 
-ethical_lexicon = [
+ethical_words = [
     "prognosis","goals","family","comfort","palliative",
     "preferences","values","burden","benefit","dnr","dni"
 ]
@@ -27,13 +38,12 @@ decision_verbs = [
     "intubate","dialyze","commence","discontinue"
 ]
 
-conditional_phrases = [
-    "if persists","to discuss","will review",
-    "await","pending","reassess","consider","if worsening"
-]
-
-explicit_agents = [
-    "we","icu team","discussed","decided"
+conditional_patterns = [
+    r"\bif .*? persists\b",
+    r"\bwill review\b",
+    r"\bto discuss\b",
+    r"\bpending\b",
+    r"\breassess\b"
 ]
 
 causal_connectors = [
@@ -42,75 +52,65 @@ causal_connectors = [
 ]
 
 # ---------------------------------------------------
-# METRIC FUNCTIONS
+# SMART PASSIVE DETECTION
+# ---------------------------------------------------
+
+def count_passives(text):
+    passive_pattern = r"\b(was|were|is|are|been|being)\b\s+\w+ed\b"
+    return len(re.findall(passive_pattern, text.lower()))
+
+# ---------------------------------------------------
+# METRICS
 # ---------------------------------------------------
 
 def count_occurrences(text, word_list):
     text_lower = text.lower()
     return sum(text_lower.count(word) for word in word_list)
 
-def count_passives(text):
-    return text.lower().count("was ")
-
 def compute_metrics(text):
     word_count = len(text.split())
 
-    ethical_count = count_occurrences(text, ethical_lexicon)
+    ethical_count = count_occurrences(text, ethical_words)
     decision_count = count_occurrences(text, decision_verbs)
-    conditional_count = count_occurrences(text, conditional_phrases)
-    agent_count = count_occurrences(text, explicit_agents)
+    conditional_count = sum(len(re.findall(p, text.lower())) for p in conditional_patterns)
     passive_count = count_passives(text)
     connector_count = count_occurrences(text, causal_connectors)
 
     DEI = decision_count / (conditional_count + 1)
-    AVS = agent_count / (passive_count + 1)
+    AVS = 1 / (passive_count + 1)
     EIR = ethical_count / (word_count + 1)
     ICS = connector_count / (word_count + 1)
 
-    return {
-        "DEI": DEI,
-        "AVS": AVS,
-        "EIR": EIR,
-        "ICS": ICS
-    }
+    return np.array([DEI, AVS, EIR, ICS])
 
 # ---------------------------------------------------
-# RULE-BASED TRANSFORMATIONS
+# MULTI-AXIS TRANSFORMATION ENGINE
 # ---------------------------------------------------
 
-def transform_note(note, style):
+def transform(note, axes, intensity):
 
     text = note
 
-    if style == "Ethical Integration":
-        ethical_sentence = (
-            " Prognosis remains guarded, and goals-of-care alignment with family "
-            "should be explicitly reviewed considering overall disease trajectory."
+    if "Ethical Integration" in axes:
+        insert = (
+            " Prognosis remains guarded, and structured goals-of-care "
+            "discussion with family is recommended."
         )
-        text += ethical_sentence
+        text += insert * int(intensity)
 
-    elif style == "Decision Explicitness":
-        replacements = {
-            "will review": "We will review and act accordingly",
-            "to discuss": "We will discuss and decide",
-            "if persists": "Given persistence, initiate escalation",
-            "pending": "Actively awaiting with plan to intervene",
-            "reassess": "We will reassess and decide"
-        }
-        for old, new in replacements.items():
-            text = text.replace(old, new)
+    if "Decision Explicitness" in axes:
+        for pattern in conditional_patterns:
+            text = re.sub(pattern,
+                          "Given clinical persistence, we will initiate active management",
+                          text,
+                          flags=re.IGNORECASE)
 
-    elif style == "Accountability Visibility":
-        text = text.replace("was started", "ICU team started")
-        text = text.replace("was initiated", "ICU team initiated")
-        text = text.replace("was done", "ICU team performed")
-        text = text.replace("is planned", "We plan")
+    if "Accountability Visibility" in axes:
+        text = re.sub(r"\bwas (\w+ed)\b", r"ICU team \1", text, flags=re.IGNORECASE)
 
-    elif style == "Interpretive Coherence":
-        coherence_prefix = (
-            "Given the above clinical findings, the following plan integrates physiological reasoning: "
-        )
-        text = coherence_prefix + text
+    if "Interpretive Coherence" in axes:
+        prefix = "Given the above physiological findings, the integrated management plan is as follows: "
+        text = prefix + text
 
     return text
 
@@ -118,12 +118,12 @@ def transform_note(note, style):
 # STREAMLIT UI
 # ---------------------------------------------------
 
-st.title("ICU Documentation Structural Digital Twin (Stable Version)")
+st.title("Advanced ICU Structural Digital Twin")
 
 note = st.text_area("Paste ICU Handover Note")
 
-style = st.selectbox(
-    "Select Structural Axis",
+axes = st.multiselect(
+    "Select Structural Axes",
     [
         "Ethical Integration",
         "Decision Explicitness",
@@ -132,66 +132,49 @@ style = st.selectbox(
     ]
 )
 
-if st.button("Generate Twin"):
+intensity = st.slider("Transformation Intensity", 0.5, 2.0, 1.0, 0.5)
+
+if st.button("Generate Structural Twin"):
 
     if not note.strip():
-        st.warning("Please paste a note.")
+        st.warning("Paste a note.")
     else:
 
-        transformed_note = transform_note(note, style)
+        twin = transform(note, axes, intensity)
 
         st.subheader("Transformed Note")
-        st.write(transformed_note)
+        st.write(twin)
 
-        original_metrics = compute_metrics(note)
-        twin_metrics = compute_metrics(transformed_note)
+        original_vec = compute_metrics(note)
+        twin_vec = compute_metrics(twin)
 
-        original_vector = np.array([
-            original_metrics["DEI"],
-            original_metrics["AVS"],
-            original_metrics["EIR"],
-            original_metrics["ICS"]
-        ])
+        drift_global = 1 - (np.dot(global_baseline, twin_vec) /
+                            (norm(global_baseline) * norm(twin_vec)))
 
-        twin_vector = np.array([
-            twin_metrics["DEI"],
-            twin_metrics["AVS"],
-            twin_metrics["EIR"],
-            twin_metrics["ICS"]
-        ])
+        st.subheader("Drift vs Global Baseline")
+        st.write(drift_global)
 
-        if np.linalg.norm(twin_vector) == 0:
-            drift = 0
-        else:
-            drift = 1 - (np.dot(baseline_vector, twin_vector) /
-                         (norm(baseline_vector) * norm(twin_vector)))
+        if institutional_baseline is not None:
+            drift_inst = 1 - (np.dot(institutional_baseline, twin_vec) /
+                              (norm(institutional_baseline) * norm(twin_vec)))
+            st.subheader("Drift vs Institutional Baseline")
+            st.write(drift_inst)
 
-        st.subheader("Structural Metrics")
-        st.write("Original:", original_metrics)
-        st.write("Twin:", twin_metrics)
-        st.write("Structural Drift Score:", drift)
-
-        # Radar Plot
-        labels = ["DEI","AVS","EIR","ICS"]
-        angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False)
-        angles = np.concatenate((angles, [angles[0]]))
-
-        original_vals = list(original_vector) + [original_vector[0]]
-        twin_vals = list(twin_vector) + [twin_vector[0]]
+        # PCA Visualization
+        data = np.vstack([global_baseline, original_vec, twin_vec])
+        pca = PCA(n_components=2)
+        reduced = pca.fit_transform(data)
 
         fig = plt.figure()
-        ax = fig.add_subplot(111, polar=True)
+        plt.scatter(reduced[0,0], reduced[0,1])
+        plt.scatter(reduced[1,0], reduced[1,1])
+        plt.scatter(reduced[2,0], reduced[2,1])
 
-        ax.plot(angles, original_vals, label="Original")
-        ax.plot(angles, twin_vals, label="Twin")
+        plt.text(reduced[0,0], reduced[0,1], "Global")
+        plt.text(reduced[1,0], reduced[1,1], "Original")
+        plt.text(reduced[2,0], reduced[2,1], "Twin")
 
-        ax.set_xticks(angles[:-1])
-        ax.set_xticklabels(labels)
-
-        ax.legend()
         st.pyplot(fig)
-
-
 
 
 
