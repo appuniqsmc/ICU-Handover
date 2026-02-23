@@ -19,7 +19,7 @@ except Exception as e:
 # ---------------------------------------------------
 
 HF_API_KEY = st.secrets["HF_API_KEY"]
-HF_MODEL = "tiiuae/falcon-7b-instruct"
+HF_MODEL = "HuggingFaceH4/zephyr-7b-beta"
 
 # ---------------------------------------------------
 # LEXICONS
@@ -215,6 +215,7 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
+
 
 
 
