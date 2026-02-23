@@ -2,17 +2,33 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
-from openai import OpenAI
+import google.generativeai as genai
+import os
 
-# -------------------------
+# ---------------------------------------------------
 # LOAD BASELINE VECTOR
-# -------------------------
+# ---------------------------------------------------
 
-baseline_vector = np.load("baseline_vector.npy")
+try:
+    baseline_vector = np.load("baseline_vector.npy")
+except Exception as e:
+    st.error(f"Baseline file error: {e}")
+    st.stop()
 
-# -------------------------
-# LEXICONS
-# -------------------------
+# ---------------------------------------------------
+# CONFIGURE GEMINI API
+# ---------------------------------------------------
+
+try:
+    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
+    model = genai.GenerativeModel("gemini-1.5-flash")
+except Exception as e:
+    st.error(f"API configuration error: {e}")
+    st.stop()
+
+# ---------------------------------------------------
+# LEXICONS FOR STRUCTURAL METRICS
+# ---------------------------------------------------
 
 ethical_lexicon = [
     "prognosis","goals","family","comfort","palliative",
@@ -38,9 +54,9 @@ causal_connectors = [
     "suggests","likely due"
 ]
 
-# -------------------------
+# ---------------------------------------------------
 # METRIC FUNCTIONS
-# -------------------------
+# ---------------------------------------------------
 
 def count_occurrences(text, word_list):
     text_lower = text.lower()
@@ -71,84 +87,84 @@ def compute_metrics(text):
         "ICS": ICS
     }
 
-# -------------------------
-# PROMPTS
-# -------------------------
+# ---------------------------------------------------
+# PROMPT GENERATOR
+# ---------------------------------------------------
 
 def get_prompt(note, style):
 
     if style == "Ethical Integration":
         return f"""
-        Rewrite this ICU handover note.
-        Preserve clinical facts.
-        Increase ethical integration and goals-of-care framing.
-        Do not add new clinical data.
+Rewrite this ICU handover note.
+Preserve all clinical facts.
+Increase ethical integration and goals-of-care framing.
+Do not add new clinical data.
 
-        NOTE:
-        {note}
-        """
+NOTE:
+{note}
+"""
 
     if style == "Decision Explicitness":
         return f"""
-        Rewrite this ICU handover note.
-        Preserve clinical facts.
-        Convert deferred language into explicit decisions.
-        Do not add new data.
+Rewrite this ICU handover note.
+Preserve clinical facts.
+Convert deferred language into explicit decisions.
+Do not add new data.
 
-        NOTE:
-        {note}
-        """
+NOTE:
+{note}
+"""
 
     if style == "Accountability Visibility":
         return f"""
-        Rewrite this ICU handover note.
-        Preserve clinical facts.
-        Increase explicit identification of responsible agents.
-        Reduce passive constructions.
-        Do not invent actions.
+Rewrite this ICU handover note.
+Preserve clinical facts.
+Increase explicit identification of responsible agents.
+Reduce passive constructions.
+Do not invent actions.
 
-        NOTE:
-        {note}
-        """
+NOTE:
+{note}
+"""
 
     if style == "Interpretive Coherence":
         return f"""
-        Rewrite this ICU handover note.
-        Preserve clinical facts.
-        Integrate reasoning connectors.
-        Avoid fragmented listing.
-        Do not add new data.
+Rewrite this ICU handover note.
+Preserve clinical facts.
+Integrate reasoning connectors.
+Avoid fragmented listing.
+Do not add new data.
 
-        NOTE:
-        {note}
-        """
+NOTE:
+{note}
+"""
 
-# -------------------------
-# OPENAI CLIENT
-# -------------------------
-
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# ---------------------------------------------------
+# GEMINI TWIN GENERATION
+# ---------------------------------------------------
 
 def generate_twin(note, style):
     prompt = get_prompt(note, style)
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role":"user","content":prompt}]
-    )
+    response = model.generate_content(prompt)
 
-    return response.choices[0].message.content
+    if response.text:
+        return response.text
+    else:
+        return response.candidates[0].content.parts[0].text
 
-# -------------------------
+# ---------------------------------------------------
 # STREAMLIT UI
-# -------------------------
+# ---------------------------------------------------
 
-st.title("ICU Documentation Digital Twin")
+st.title("ICU Documentation Structural Digital Twin")
+
+st.markdown("**This tool modifies documentation structure only. It does NOT provide clinical advice.**")
 
 note = st.text_area("Paste ICU Handover Note")
 
 style = st.selectbox(
-    "Select Structural Axis",
+    "Select Structural Axis to Enhance",
     [
         "Ethical Integration",
         "Decision Explicitness",
@@ -162,8 +178,11 @@ if st.button("Generate Twin"):
     if note.strip() == "":
         st.warning("Please paste a note.")
     else:
-
-        transformed_note = generate_twin(note, style)
+        try:
+            transformed_note = generate_twin(note, style)
+        except Exception as e:
+            st.error(f"Generation error: {e}")
+            st.stop()
 
         st.subheader("Transformed Note")
         st.write(transformed_note)
@@ -188,11 +207,12 @@ if st.button("Generate Twin"):
         drift = 1 - (np.dot(baseline_vector, twin_vector) /
                      (norm(baseline_vector) * norm(twin_vector)))
 
-        st.subheader("Metrics")
+        st.subheader("Structural Metrics")
         st.write("Original:", original_metrics)
         st.write("Twin:", twin_metrics)
-        st.write("Structural Drift:", drift)
+        st.write("Structural Drift Score:", drift)
 
+        # Radar Plot
         labels = ["DEI","AVS","EIR","ICS"]
 
         angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False)
@@ -212,3 +232,4 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
+
