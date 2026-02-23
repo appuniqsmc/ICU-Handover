@@ -1,9 +1,7 @@
-
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
-import requests
 
 # ---------------------------------------------------
 # LOAD BASELINE VECTOR
@@ -14,15 +12,6 @@ try:
 except Exception as e:
     st.error(f"Baseline file error: {e}")
     st.stop()
-
-# ---------------------------------------------------
-# HUGGING FACE CONFIG
-# ---------------------------------------------------
-
-HF_API_KEY = st.secrets["HF_API_KEY"]
-
-# This model works with router inference
-HF_MODEL = "HuggingFaceH4/zephyr-7b-beta"
 
 # ---------------------------------------------------
 # LEXICONS
@@ -86,69 +75,50 @@ def compute_metrics(text):
     }
 
 # ---------------------------------------------------
-# PROMPT GENERATOR
+# RULE-BASED TRANSFORMATIONS
 # ---------------------------------------------------
 
-def get_prompt(note, style):
+def transform_note(note, style):
+
+    text = note
 
     if style == "Ethical Integration":
-        instruction = "Increase ethical integration and goals-of-care framing."
+        ethical_sentence = (
+            " Prognosis remains guarded, and goals-of-care alignment with family "
+            "should be explicitly reviewed considering overall disease trajectory."
+        )
+        text += ethical_sentence
+
     elif style == "Decision Explicitness":
-        instruction = "Convert deferred language into explicit decisions."
-    elif style == "Accountability Visibility":
-        instruction = "Increase explicit identification of responsible agents and reduce passive constructions."
-    else:
-        instruction = "Integrate reasoning connectors and avoid fragmented listing."
-
-    return f"""
-Rewrite this ICU handover note.
-Preserve all clinical facts.
-{instruction}
-Do not add new clinical data.
-
-NOTE:
-{note}
-"""
-
-# ---------------------------------------------------
-# HUGGING FACE GENERATION
-# ---------------------------------------------------
-
-def generate_twin(note, style):
-
-    prompt = get_prompt(note, style)
-
-    headers = {
-        "Authorization": f"Bearer {HF_API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": 512,
-            "temperature": 0.7
+        replacements = {
+            "will review": "We will review and act accordingly",
+            "to discuss": "We will discuss and decide",
+            "if persists": "Given persistence, initiate escalation",
+            "pending": "Actively awaiting with plan to intervene",
+            "reassess": "We will reassess and decide"
         }
-    }
+        for old, new in replacements.items():
+            text = text.replace(old, new)
 
-    url = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
+    elif style == "Accountability Visibility":
+        text = text.replace("was started", "ICU team started")
+        text = text.replace("was initiated", "ICU team initiated")
+        text = text.replace("was done", "ICU team performed")
+        text = text.replace("is planned", "We plan")
 
-    response = requests.post(url, headers=headers, json=payload)
+    elif style == "Interpretive Coherence":
+        coherence_prefix = (
+            "Given the above clinical findings, the following plan integrates physiological reasoning: "
+        )
+        text = coherence_prefix + text
 
-    if response.status_code == 200:
-        output = response.json()
-        if isinstance(output, list) and "generated_text" in output[0]:
-            return output[0]["generated_text"]
-        else:
-            return str(output)
-    else:
-        return f"HuggingFace Error: {response.status_code} - {response.text}"
+    return text
 
 # ---------------------------------------------------
 # STREAMLIT UI
 # ---------------------------------------------------
 
-st.title("ICU Documentation Structural Digital Twin (Free Version)")
+st.title("ICU Documentation Structural Digital Twin (Stable Version)")
 
 note = st.text_area("Paste ICU Handover Note")
 
@@ -168,7 +138,7 @@ if st.button("Generate Twin"):
         st.warning("Please paste a note.")
     else:
 
-        transformed_note = generate_twin(note, style)
+        transformed_note = transform_note(note, style)
 
         st.subheader("Transformed Note")
         st.write(transformed_note)
@@ -190,8 +160,11 @@ if st.button("Generate Twin"):
             twin_metrics["ICS"]
         ])
 
-        drift = 1 - (np.dot(baseline_vector, twin_vector) /
-                     (norm(baseline_vector) * norm(twin_vector)))
+        if np.linalg.norm(twin_vector) == 0:
+            drift = 0
+        else:
+            drift = 1 - (np.dot(baseline_vector, twin_vector) /
+                         (norm(baseline_vector) * norm(twin_vector)))
 
         st.subheader("Structural Metrics")
         st.write("Original:", original_metrics)
