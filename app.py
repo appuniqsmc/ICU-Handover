@@ -2,7 +2,7 @@ import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
 from numpy.linalg import norm
-import google.generativeai as genai
+from google import genai
 
 # ---------------------------------------------------
 # LOAD BASELINE VECTOR
@@ -15,18 +15,17 @@ except Exception as e:
     st.stop()
 
 # ---------------------------------------------------
-# CONFIGURE GEMINI API
+# CONFIGURE GEMINI CLIENT (NEW SDK)
 # ---------------------------------------------------
 
 try:
-    genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
-    model = genai.GenerativeModel("gemini-pro")
+    client = genai.Client(api_key=st.secrets["GOOGLE_API_KEY"])
 except Exception as e:
     st.error(f"API configuration error: {e}")
     st.stop()
 
 # ---------------------------------------------------
-# LEXICONS FOR STRUCTURAL METRICS
+# LEXICONS
 # ---------------------------------------------------
 
 ethical_lexicon = [
@@ -93,67 +92,37 @@ def compute_metrics(text):
 def get_prompt(note, style):
 
     if style == "Ethical Integration":
-        return f"""
+        instruction = "Increase ethical integration and goals-of-care framing."
+    elif style == "Decision Explicitness":
+        instruction = "Convert deferred language into explicit decisions."
+    elif style == "Accountability Visibility":
+        instruction = "Increase explicit identification of responsible agents and reduce passive constructions."
+    else:
+        instruction = "Integrate reasoning connectors and avoid fragmented listing."
+
+    return f"""
 Rewrite this ICU handover note.
 Preserve all clinical facts.
-Increase ethical integration and goals-of-care framing.
+{instruction}
 Do not add new clinical data.
 
 NOTE:
 {note}
 """
 
-    if style == "Decision Explicitness":
-        return f"""
-Rewrite this ICU handover note.
-Preserve clinical facts.
-Convert deferred language into explicit decisions.
-Do not add new data.
-
-NOTE:
-{note}
-"""
-
-    if style == "Accountability Visibility":
-        return f"""
-Rewrite this ICU handover note.
-Preserve clinical facts.
-Increase explicit identification of responsible agents.
-Reduce passive constructions.
-Do not invent actions.
-
-NOTE:
-{note}
-"""
-
-    if style == "Interpretive Coherence":
-        return f"""
-Rewrite this ICU handover note.
-Preserve clinical facts.
-Integrate reasoning connectors.
-Avoid fragmented listing.
-Do not add new data.
-
-NOTE:
-{note}
-"""
-
 # ---------------------------------------------------
-# GEMINI TWIN GENERATION
+# GEMINI GENERATION
 # ---------------------------------------------------
 
 def generate_twin(note, style):
     prompt = get_prompt(note, style)
 
-    response = model.generate_content(prompt)
+    response = client.models.generate_content(
+        model="gemini-1.5-flash",
+        contents=prompt
+    )
 
-    if hasattr(response, "text") and response.text:
-        return response.text
-
-    try:
-        return response.candidates[0].content.parts[0].text
-    except:
-        return "No response generated."
+    return response.text
 
 # ---------------------------------------------------
 # STREAMLIT UI
@@ -161,12 +130,12 @@ def generate_twin(note, style):
 
 st.title("ICU Documentation Structural Digital Twin")
 
-st.markdown("**This tool modifies documentation structure only. It does NOT provide clinical advice.**")
+st.markdown("This tool modifies documentation structure only. It does NOT provide clinical advice.")
 
 note = st.text_area("Paste ICU Handover Note")
 
 style = st.selectbox(
-    "Select Structural Axis to Enhance",
+    "Select Structural Axis",
     [
         "Ethical Integration",
         "Decision Explicitness",
@@ -177,7 +146,7 @@ style = st.selectbox(
 
 if st.button("Generate Twin"):
 
-    if note.strip() == "":
+    if not note.strip():
         st.warning("Please paste a note.")
     else:
         try:
@@ -216,7 +185,6 @@ if st.button("Generate Twin"):
 
         # Radar Plot
         labels = ["DEI","AVS","EIR","ICS"]
-
         angles = np.linspace(0, 2*np.pi, len(labels), endpoint=False)
         angles = np.concatenate((angles, [angles[0]]))
 
@@ -234,5 +202,6 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
+
 
 
