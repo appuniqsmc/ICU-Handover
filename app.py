@@ -128,7 +128,8 @@ def generate_twin(note, style):
         }
     }
 
-    url = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+    # NEW ROUTER ENDPOINT
+    url = f"https://router.huggingface.co/hf-inference/models/{HF_MODEL}"
 
     response = requests.post(url, headers=headers, json=payload)
 
@@ -214,6 +215,7 @@ if st.button("Generate Twin"):
 
         ax.legend()
         st.pyplot(fig)
+
 
 
 
